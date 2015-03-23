@@ -1,0 +1,208 @@
+
+import java.net.InetAddress;
+import java.rmi.*;
+import java.rmi.server.*;
+import java.rmi.registry.*;
+import java.util.Vector;
+import java.lang.Math;
+
+public class Node extends UnicastRemoteObject implements NodeInterface  {
+
+	private static final long serialVersionUID = -7544201746831096707L;
+	private String id;  
+	private String name;  
+	private int port;
+	private Vector<AssocKeyNode> entrepot; 
+	
+	/*********** Constructor**************************************************/
+	public Node(String name, int port, Vector<AssocKeyNode> entrepot) throws RemoteException {
+		this.name = name;
+		this.port = port;
+		this.entrepot = entrepot;
+	}
+	/******************************** Remote Methods *****************************************************/
+	public AssocKeyNode request(int key,int HTL,Vector<String> Vect_IdReq) throws RemoteException {
+		
+		String format = "dd/MM/yy H:mm:ss"; 
+		java.text.SimpleDateFormat formater = new java.text.SimpleDateFormat( format ); 
+		java.util.Date date = new java.util.Date(); 
+		String UniqueID = name+key+formater.format(date); // id unique d'une request (pour eviter les loops)
+		if (Vect_IdReq.contains(UniqueID)) {
+				return null; 
+		} else {
+				Vect_IdReq.add(UniqueID); //si l'id de la requete n'est pas deja present ds le vecteur, on l'a stock 
+		}
+		HTL--;
+		Vector<AssocKeyNode> tmp = new Vector<AssocKeyNode>(); //pour calculer les differences d'un entrepot
+		if (HTL==0) {
+			return null;
+		}				
+		if (entrepot.size() != 0) { //si l'entrepot n'est pas vide
+			for (int i=0; i<entrepot.size(); i++) { 	// on le parcours
+				if (entrepot.elementAt(i).key == key) { // si on possède le fichier
+					AssocKeyNode file = new AssocKeyNode (entrepot.elementAt(i).key, entrepot.elementAt(i).Node,
+							entrepot.elementAt(i).port);
+					return file; //on le renvoie directement au node source
+				}  			
+				else  {  //autrement on essaie de determiner la cle la plus proche de celle recherchée
+					int val,diff, port; String nom;
+					val = entrepot.elementAt(i).key;
+					nom = entrepot.elementAt(i).Node;
+					port = entrepot.elementAt(i).port;
+					diff = key-val;	//calcul des difference
+					if (nom != name) { // on stock les differences (sauf avec soi meme)
+						tmp.addElement(new AssocKeyNode(Math.abs(diff), nom, port));
+					} 
+				}			
+			} //fin parcours entrepot			
+			int previous = -1;  int indice = -1;
+			for (int j=0; j<tmp.size(); j++) { //pour re-essayer si on trouve pas first try
+				int current = 10000; 
+				for (int k=0; k<tmp.size(); k++) {
+					if (tmp.elementAt(k).key < current) {
+						if (tmp.elementAt(k).key > previous) {
+							current = tmp.elementAt(k).key; //difference la plus courte de ce tour
+							indice = k; // on recupere son indice
+						}
+					}
+				}
+				previous = current; //difference la plus courte precedente
+				System.out.println("yo, I am "+name+" forwarding to "+tmp.elementAt(indice).Node+" @port:"+tmp.elementAt(indice).port+" (connexion Freenet)");
+				Registry reg = LocateRegistry.getRegistry("localHost", tmp.elementAt(indice).port);
+				try {
+					NodeInterface ni = (NodeInterface)reg.lookup(tmp.elementAt(indice).Node);
+					AssocKeyNode resultat = ni.request(key,HTL, Vect_IdReq);
+					if (resultat != null) {
+						HTL--;
+						System.out.println("Hi, I am "+tmp.elementAt(indice).Node+" returning positive response to "+name);
+						return resultat; //reponse positive, renvoie du resultat (recursif)
+					} else { //reponse negative
+						System.out.println("Hi, I am "+tmp.elementAt(indice).Node+" returning negative response to "+name);
+					}
+				} catch (NotBoundException e) {
+					e.printStackTrace();
+				}			
+			} //fin du check de l'entrepot
+		} else {
+			System.out.println("votre entrepot est vide.. \n");
+		}
+		return null;
+	}	
+	/*****************************************************************************************************************/     
+	public static void main(String[] args)  {
+
+		System.setProperty("java.security.policy", "/home/mike/workspace/Freenet/policy.all"); //RMI policy instead of -Djava.security.policy=policy-file MyClass
+		if(System.getSecurityManager() == null)	{					 
+			System.setSecurityManager(new RMISecurityManager());	//gestionnaire de sécurité  indtead of option -Djava.security.manager
+		}	 	    	   	 
+		try	{						
+			String name = InetAddress.getLocalHost().getHostName();
+			String ip = InetAddress.getLocalHost().getHostAddress();
+			/******************************** network simulation *************************************************/
+			int port = 1099;
+			int portB = 1199; 
+			int portC = 1299; 
+			int portD = 1399; 
+			int portE = 1499; 
+			int portF = 1599; 
+
+			Registry regA = LocateRegistry.createRegistry(port);    	 
+			Vector<AssocKeyNode> entrepotA = new Vector<AssocKeyNode>();
+			entrepotA.add(new AssocKeyNode(55, "B", portB));
+			Node A = new Node ("A", port, entrepotA);
+			regA.bind("A", A);
+			System.out.println("\nPeer A @"+ip+" ready...listennig on port: "+port);
+
+			Registry regB = LocateRegistry.createRegistry(portB);
+			Vector<AssocKeyNode> entrepotB = new Vector<AssocKeyNode>();
+			entrepotB.add(new AssocKeyNode(55, "B", portB));
+			entrepotB.add(new AssocKeyNode(10, "E", portE));
+			entrepotB.add(new AssocKeyNode(67, "C", portC));
+			Node B = new Node ("B", portB, entrepotB);
+			regB.bind("B", B);
+			System.out.println("Peer B @"+ip+" ready...listennig on port: "+portB);
+
+			Registry regC = LocateRegistry.createRegistry(portC);
+			Vector<AssocKeyNode> entrepotC = new Vector<AssocKeyNode>();
+			entrepotC.add(new AssocKeyNode(67, "C", portC));
+			Node C = new Node ("C", portC, entrepotC);
+			regC.bind("C", C);
+			System.out.println("Peer C @"+ip+" ready...listennig on port: "+portC);
+
+			Registry regD = LocateRegistry.createRegistry(portD);
+			Vector<AssocKeyNode> entrepotD = new Vector<AssocKeyNode>();
+			entrepotD.add(new AssocKeyNode(50, "D", portD));
+			entrepotD.add(new AssocKeyNode(98, "D", portD));
+			Node D = new Node ("D", portD, entrepotD);
+			regD.bind("D", D);
+			System.out.println("Peer D @"+ip+" ready...listennig on port: "+portD);
+
+			Registry regE = LocateRegistry.createRegistry(portE);
+			Vector<AssocKeyNode> entrepotE = new Vector<AssocKeyNode>();
+			entrepotE.add(new AssocKeyNode(45, "F", portF));
+			entrepotE.add(new AssocKeyNode(98, "D", portD));
+			entrepotE.add(new AssocKeyNode(10, "E", portE));
+			Node E = new Node ("E", portE, entrepotE);
+			regE.bind("E", E);
+			System.out.println("Peer E @"+ip+" ready...listennig on port: "+portE);
+
+			Registry regF = LocateRegistry.createRegistry(portF);
+			Vector<AssocKeyNode> entrepotF = new Vector<AssocKeyNode>();
+			entrepotF.add(new AssocKeyNode(45, "F", portF));
+			entrepotF.add(new AssocKeyNode(55, "B", portB));
+			Node F = new Node ("F", portF, entrepotF);
+			regF.bind("F", F);
+			System.out.println("Peer F @"+ip+" ready...listennig on port: "+portF+"\n");
+			
+			/******************************** user interface on Node A *******************************/
+			int Val;
+			boolean exit=false; 
+
+			while (!exit) {
+				System.out.println(" 				            ");
+				System.out.println("Options:                 	");
+				System.out.println("        1. search file 		");
+				System.out.println("        2. exit      		");
+				System.out.println(" 				            ");
+				Val = Keyin.inInt("Select option: ");
+
+				switch (Val) {
+				case 1:
+					Registry reg = LocateRegistry.getRegistry(name, port);
+					NodeInterface ni = (NodeInterface)reg.lookup(A.name); 
+					System.out.println("\nmy entrepot :");
+					for (int i=0; i<A.entrepot.size(); i++) { 
+						System.out.println("key: "+A.entrepot.elementAt(i).key+" owner: "+A.entrepot.elementAt(i).Node+"\n");       	    				    	    			
+					}
+					int file = Keyin.inInt("Enter the file to search : ");
+					System.out.println(" 	");
+					int HTL = 35; // Hop To Live (pour les grands network)
+					Vector<String> Vect_IdReq = new Vector<String>();
+					AssocKeyNode filedata = ni.request(file, HTL, Vect_IdReq); 
+					if (filedata!=null) {
+						if (!(filedata.key == 0)) {
+							A.entrepot.add(filedata);
+							System.out.println("\nmy entrepot :");
+							for (int i=0; i<A.entrepot.size(); i++) { 
+								System.out.println("key: "+A.entrepot.elementAt(i).key+" owner: "+A.entrepot.elementAt(i).Node);       	    				    	    			
+							}
+						} 
+					} else {
+							System.out.println("\nSorry, This file doesn't exist !");
+					}
+					break;
+				case 2:
+					exit = true;
+					System.exit(0);
+					break;
+				default:
+					System.out.println("Invalid selection, try agin...");
+					break; // This break is not really necessary
+				}
+			}//end loop  
+		} catch (Exception e) { 
+			System.out.println("Sorry a Problem has occured, Service is down\n"+e.toString()+"\n");
+			e.printStackTrace();
+		}
+	}
+}

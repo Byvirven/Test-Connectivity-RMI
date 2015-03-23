@@ -1,0 +1,356 @@
+////////////////////////////////////////////////////////////
+//                                                        //
+// Auteur     : Dos Santos Oliveira Marco                 //
+// Date       : 9 janvier 2012                            //
+// Cours      : Systèmes distribués                       //
+// Professeur : Nabil Abdennadher                         //
+// Sujet      : Implémentation de l'algorithme synchrone  //
+//              de plus court chemin avec java rmi        //
+//                                                        //
+////////////////////////////////////////////////////////////
+
+import java.rmi.*;
+import java.rmi.registry.*;
+import java.rmi.server.*;
+import java.io.*;
+import java.util.*;
+
+
+public class S_Calcul_PCC extends UnicastRemoteObject implements Interface {
+	private String Machine;
+	private String Port;
+	private String Nom;
+	private static ArrayList<ArrayList<Integer>> Voisins;
+	private static ArrayList<ArrayList<Integer>> Distances; //
+	private static ArrayList<ArrayList<Integer>> Premiers; //
+	private static ArrayList<Boolean> initI;
+	
+	// paramètres d'un objet
+	public static int idI;
+	public static ArrayList<Integer> vI;
+	public static ArrayList<Boolean> atteintI;
+	public static ArrayList<Integer> countI;
+	public static ArrayList<Integer> parentI;
+	
+	public S_Calcul_PCC(String msg) throws RemoteException {
+		System.out.println(msg);
+	}
+	
+	public static void genererNoeud(int monId, int nbNoeud, ArrayList<Integer> mesVoisins) {
+		System.out.println("Le noeud RMI numéro "+String.valueOf(monId)+" est prêt sur le port");
+		idI = monId;
+		vI = mesVoisins;
+		atteintI = genererAtteint(monId, nbNoeud);
+		countI = genererCount(monId, nbNoeud);
+		parentI = genererParent(monId, nbNoeud);
+	}
+	
+	public static ArrayList<Boolean> genererAtteint (int id, int nbNoeud) throws RemoteException {
+		ArrayList<Boolean> l = new ArrayList<Boolean>(nbNoeud);
+		for (int i=0;i<nbNoeud;i++) {
+			if (i==id) {
+				l.add(true);
+			} else {
+				l.add(false);
+			}
+		}
+		return l;
+	}
+	
+	public static ArrayList<Integer> genererCount (int id, int nbNoeud) throws RemoteException {
+		ArrayList<Integer> l = new ArrayList<Integer>(nbNoeud);
+		for (int i=0;i<nbNoeud;i++) {
+			if (i==id) {
+				l.add(null);
+			} else {
+				l.add(0);
+			}
+		}
+		return l;
+	}
+	
+	public static ArrayList<Integer> genererParent (int id, int nbNoeud) throws RemoteException {
+		ArrayList<Integer> l = new ArrayList<Integer>(nbNoeud);
+		for (int i=0;i<nbNoeud;i++) {
+			if (i==id) {
+				l.add(null);
+			} else {
+				// initialisé à nbNoeud car plus pratique
+				// que NULL
+				l.add(nbNoeud);
+			}
+		}
+		return l;
+	}
+	
+	public static ArrayList<Boolean> genererInit (int nbNoeud) throws Exception {
+		ArrayList<Boolean> l = new ArrayList<Boolean>(nbNoeud);
+		for (int i=0;i<nbNoeud;i++) {
+			// permet d'activer et de désactiver
+			// le noeud lui-même'
+			l.add(false);
+		}
+		return l;
+	}
+
+	public synchronized void setNoeud (int noeudSource, int noeudDestination, ArrayList<Integer> l, int nbNoeud) throws RemoteException {
+		System.out.println("un message venant du noeud "+String.valueOf(noeudSource)+" à destination du noeud "+String.valueOf(noeudDestination));
+		for (int i=0;i<nbNoeud;i++) {
+			if (i != noeudDestination) {
+				if (l.get(i) < nbNoeud-1 && 
+					(Distances.get(noeudDestination).get(i) == nbNoeud || 
+					l.get(i)< Distances.get(noeudDestination).get(i)-1)) {
+					Distances.get(noeudDestination).set(i, l.get(i)+1);
+					Premiers.get(noeudDestination).set(i,noeudSource);
+				}
+			}
+		}
+	}
+	
+	public static void afficherVoisin(int nbNoeud) throws Exception {
+		System.out.println("\nTable des voisins par noeud\n");
+		for (int i=0;i<nbNoeud;i++) {
+				System.out.print("Node"+String.valueOf(i)+"   ");
+		}
+		System.out.print("\n");
+		for(int i=0;i<nbNoeud;i++) {
+			for(int j=0;j<nbNoeud;j++) {
+				if (i<Voisins.get(j).size()) {
+					System.out.print("   "+String.valueOf(Voisins.get(j).get(i))+"    ");
+				} else {
+					System.out.print("        ");
+				}
+			}
+			System.out.print("\n");
+		}
+	}
+	
+	public static void afficherDistance(int nbNoeud) throws Exception {
+		System.out.println("\nTable des distances entre les noeuds\n");
+		for (int i=0;i<nbNoeud;i++) {
+				System.out.print("Node"+String.valueOf(i)+"   ");
+		}
+		System.out.print("\n");
+		for(int i=0;i<nbNoeud;i++) {
+			for(int j=0;j<nbNoeud;j++) {
+				if (i<Distances.get(j).size()) {
+					System.out.print("   "+String.valueOf(Distances.get(j).get(i))+"    ");
+				} else {
+					System.out.print("        ");
+				}
+			}
+			System.out.print("\n");
+		}
+	}
+	
+	public static void afficherPremier (int nbNoeud) throws Exception {
+		System.out.println("\nTable des premiers noeuds du chemin le plus court\n");
+		for (int i=0;i<nbNoeud;i++) {
+				System.out.print("Node"+String.valueOf(i)+"   ");
+		}
+		System.out.print("\n");
+		for(int i=0;i<nbNoeud;i++) {
+			for(int j=0;j<nbNoeud;j++) {
+				if (i<Premiers.get(j).size()) {
+					if (Premiers.get(j).get(i) != null) {
+						System.out.print("   "+String.valueOf(Premiers.get(j).get(i))+"    ");
+					} else {
+						System.out.print(String.valueOf(Premiers.get(j).get(i))+"   ");
+					}
+				} else {
+					System.out.print("        ");
+				}
+			}
+			System.out.print("\n");
+		}
+	}
+	
+	public static ArrayList<ArrayList<Integer>> genererVoisin (int nbNoeud) throws Exception {
+		// on crée un ArrayList de taille nbNoeud
+		ArrayList<ArrayList<Integer>> l = new ArrayList<ArrayList<Integer>>(nbNoeud); 
+		// préparer le générateur de nombre aléatoire
+		Random  randomGenerator = new Random();
+		// pour chaque noeud
+		for (int i=0;i<nbNoeud;i++) {
+			// on tire aléatoirement le nombre de voisins
+			// auxquels sera relié le noeud i
+			int nbVoisin = randomGenerator.nextInt(nbNoeud-1)+1;
+			// on crée une nouvelle liste de taille nbVoisin
+			l.add(i, new ArrayList<Integer>(nbVoisin));
+			// à partir du deuxième tour, on recopie
+			// le voisins des tours précédents si nécessaire...
+			if (i>0) {
+				for(int j=0;j<i;j++) {
+					// vérifier la présence du noeud
+					if (l.get(j).contains(i)) {
+						l.get(i).add(j);
+					}
+				}
+			}
+			
+			// initialisation du compteur pour éviter les boucles
+			// infinis dans la génération des voisins 
+			int cpt = 0;
+			while (l.get(i).size() < nbVoisin) {
+				// on tire aléatoirement le numéro du voisin
+				int numVoisin = randomGenerator.nextInt(nbNoeud);
+				// on s'assure que le voisin est supérieure au noeud
+				// lui-même et qu'il n'est pas déjà présent 
+				if (numVoisin > i && !l.get(i).contains(numVoisin)) {
+					l.get(i).add(numVoisin);
+				}
+				// pour éviter les boucles infinis quand plus aucun
+				// voisin n'est disponible, on décrémente le nombre
+				// de voisins auxquels est connecté le noeud.
+				cpt++;
+				if (cpt > (nbNoeud*nbNoeud)-1) nbVoisin--;
+			}
+		}
+		// afficher la liste des connexions créées pour debug
+		/*for(int i=0;i<l.size();i++) {
+			System.out.println("le noeud "+String.valueOf(i)+" a pour voisin le(s) noeud(s) :");
+			for(int j=0;j<l.get(i).size();j++) {
+				System.out.println(String.valueOf(l.get(i).get(j)));
+			}
+		}*/
+		return l;
+	}
+	
+	public static ArrayList<ArrayList<Integer>> genererDistance (int nbNoeud) throws Exception {
+		// on crée un ArrayList de taille nbNoeud
+		ArrayList<ArrayList<Integer>> l = new ArrayList<ArrayList<Integer>>(nbNoeud);
+		for (int i=0;i<nbNoeud;i++) {
+			l.add(i, new ArrayList<Integer>(nbNoeud));
+			for(int j=0;j<nbNoeud;j++) {
+				if (j==i) { 
+					l.get(i).add(0);
+				} else {
+					l.get(i).add(nbNoeud);
+				}
+			}
+		} 
+		// afficher la liste des distance créées pour debug
+		/*for(int i=0;i<l.size();i++) {
+			System.out.println("le noeud "+String.valueOf(i)+" a les distances suivantes :");
+			for(int j=0;j<l.get(i).size();j++) {
+				System.out.println(String.valueOf(l.get(i).get(j)));
+			}
+		}*/
+		return l;
+	}
+	
+	public static ArrayList<ArrayList<Integer>> genererPremier (int nbNoeud) throws Exception {
+		// on crée un ArrayList de taille nbNoeud
+		ArrayList<ArrayList<Integer>> l = new ArrayList<ArrayList<Integer>>(nbNoeud);
+		for (int i=0;i<nbNoeud;i++) {
+			l.add(i, new ArrayList<Integer>(nbNoeud));
+			for(int j=0;j<nbNoeud;j++) {
+				l.get(i).add(null);
+			}
+		} 
+		// afficher la liste des premiers créées pour debug
+		/*for(int i=0;i<l.size();i++) {
+			System.out.println("le premier noeud à destination du noeud "+String.valueOf(i)+" est le suivant :");
+			for(int j=0;j<l.get(i).size();j++) {
+				System.out.println(String.valueOf(l.get(i).get(j)));
+			}
+		}*/
+		return l;
+	}
+	
+	public static boolean tablePleine(int nbNoeud) throws Exception {
+		for (int i=0;i<nbNoeud;i++) {
+			if (Distances.get(i).contains(nbNoeud)) {
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	public static void main(String[] args)  throws IOException { 
+		try {
+		
+			// créer un terminal d'écriture
+			Console c = System.console();
+			if (c == null) {
+				System.err.println("Pas de terminal.");
+				System.exit(1);
+			}
+			// nom de la machine
+			// ne fonctionne qu'avec 127.0.0.1 ou localhost.localdomain sur ma machine'
+			String Machine = "localhost.localdomain";
+			
+			// choix du port
+			// par défaut le 1099
+			String Port = c.readLine("\nPort de la machine (par défaut 1099): ");
+			// vérifier si le port est vide 
+			// ou si il ne s'agit pas d'une valeur numérique entière
+			// ou si le port est plus petit que 1099
+			if (Port.isEmpty() || 
+				!Port.matches("[0-9]+") || 
+				Integer.parseInt(Port) < 1099) {
+				Port = "1099";
+			}
+			
+			// nom du service
+			String Nom = c.readLine("Nom de l'objet distant' (par défaut Noeud): ");
+			// vérifier si le nom est vide
+			if (Nom.isEmpty()) {
+				Nom = "Noeud";
+			}
+			
+			// nombre de noeud du graphe
+			String nbNoeud = c.readLine("Combien de noeuds possède le graphe (par défaut minimum 2): ");
+			// vérifier si le nombre de noeud est vide
+			// ou si il ne s'agit pas d'une valeur numérique entière
+			// ou si le nombre de noeud est inférieur à 2
+			if (nbNoeud.isEmpty() || 
+				!nbNoeud.matches("[0-9]+") || 
+				Integer.parseInt(nbNoeud) < 2) {
+				nbNoeud = "2";
+			}
+			
+			// génération de la liste des voisin
+			Voisins = genererVoisin(Integer.parseInt(nbNoeud));
+			// génération des distances initiales
+			Distances = genererDistance(Integer.parseInt(nbNoeud));
+			// génération des premiers noeuds
+			Premiers = genererPremier(Integer.parseInt(nbNoeud));
+			
+			// commande rmiregistry <Port> &
+			Registry registry=LocateRegistry.createRegistry(Integer.parseInt(Port));
+			
+			// Création des noeuds
+			System.out.println("\nDébut de la phase de création des noeuds et de leurs voisins...\n");
+			for (int i=0; i<Integer.parseInt(nbNoeud);i++) {
+				// appel de l'objet rmi
+				Naming.bind("//"+Machine+":"+Port+"/"+Nom+String.valueOf(i), new S_Calcul_PCC ("L'objet "+Nom+String.valueOf(i)+" est prêt sur le port "+Port+" du serveur "+Machine));
+			}
+			
+			System.out.println("\nCréation des noeuds du graphe et de leur voisinage terminée.");
+			System.out.println("\nDébut de la phase de calcul de plus court chemin...\n");
+			
+			int instantT = 0;
+			while (tablePleine(Integer.parseInt(nbNoeud)) && 
+					instantT < (Integer.parseInt(nbNoeud)*Integer.parseInt(nbNoeud))-1) {
+				for (int i=0; i<Integer.parseInt(nbNoeud);i++) {
+					for (int j=0;j<Voisins.get(i).size();j++) {
+						Interface ref_obj_distant=(Interface)Naming.lookup("//"+Machine+":"+Port+"/"+Nom+String.valueOf(Voisins.get(i).get(j)));
+						ref_obj_distant.setNoeud(i, Voisins.get(i).get(j), Distances.get(i), Integer.parseInt(nbNoeud) )  ;
+					}
+				}
+				instantT++;
+			}
+			
+			System.out.println("\nCalcul des plus courts chemin terminée.\n");
+			
+			afficherVoisin(Integer.parseInt(nbNoeud));
+			afficherDistance(Integer.parseInt(nbNoeud));
+			afficherPremier(Integer.parseInt(nbNoeud));
+		// problème de connexion
+		} catch (Exception e) {
+			System.out.println("Le serveur est en panne");
+		}
+	}
+}
+

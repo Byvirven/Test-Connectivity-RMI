@@ -1,0 +1,245 @@
+////////////////////////////////////////////////////////////
+//                                                        //
+// Auteur     : Dos Santos Oliveira Marco                 //
+// Date       : 9 janvier 2012                            //
+// Cours      : Systèmes distribués                       //
+// Professeur : Nabil Abdennadher                         //
+// Sujet      : Implémentation de l'algorithme            //
+//              de Test Connectivity avec Java rmi        //
+//                                                        //
+////////////////////////////////////////////////////////////
+
+import java.rmi.*;
+import java.rmi.NotBoundException;
+
+import java.net.MalformedURLException;
+import java.rmi.registry.*;
+import java.rmi.server.*;
+import java.io.*;
+import java.util.*;
+
+public class TC_Algorithme extends UnicastRemoteObject implements Interface {
+
+	// paramètres génériques
+	private static String Machine;
+	private static String Port;
+	private static String Nom;
+	private static ArrayList<ArrayList<Integer>> Voisins;
+	
+	// paramètres d'un objet
+	private static ArrayList<Noeud> Noeud;
+	private static ArrayList<Registry> Registre;
+	
+	public TC_Algorithme(int monId, int nbNoeud, ArrayList<Integer> mesVoisins) throws RemoteException {
+		Noeud.add(new Noeud(monId,nbNoeud,mesVoisins, Machine, Port, Nom));
+	}
+	
+	public void envoyerNoeud (int Destination,int intermediaire,int Source) throws RemoteException {
+		try {
+			// petit message
+			System.out.println("Message du noeud "+Nom+String.valueOf(Source)+" sur le port "+String.valueOf(Integer.parseInt(Port)+Destination)+" du serveur "+Machine+" à destination du noeud " + Nom+String.valueOf(Destination));
+			
+			// si non init(i)
+			if (!Noeud.get(Destination).getInit(Destination)) {
+				// init(i) = true et atteint(i) = true
+				Noeud.get(Destination).setInit(Destination);
+				Noeud.get(Destination).setAtteint(Destination);
+				// envoyer id(i) à tous les noeuds de v(i)
+				for (int i=0;i< Noeud.get(Destination).getTailleVoisinage();i++) {
+					if (Noeud.get(Destination).getVoisin(i) != Source) {
+						Interface ref_obj_distant=(Interface)Naming.lookup("//"+Machine+":"+String.valueOf(Integer.parseInt(Port)+Noeud.get(Destination).getVoisin(i))+"/"+Nom+String.valueOf(Noeud.get(Destination).getVoisin(i)));
+						ref_obj_distant.envoyerNoeud(Noeud.get(Destination).getVoisin(i),Noeud.get(Destination).getId(),Source);
+					}
+				}
+			}
+			
+			// count(i,k) +=1
+			if (intermediaire != -1) {
+				Noeud.get(Destination).setCount(Source);
+			}
+			// si non atteint(i,k)
+			if(!Noeud.get(Destination).getAtteint(Source)) {
+				Noeud.get(Destination).setAtteint(Source);
+				Noeud.get(Destination).setParent(Source,intermediaire);
+				// envoyer id(i) à tous les noeuds de v(i)
+				for (int i=0;i< Noeud.get(Destination).getTailleVoisinage();i++) {
+					if (Noeud.get(Destination).getVoisin(i) != intermediaire) {
+						Interface ref_obj_distant=(Interface)Naming.lookup("//"+Machine+":"+String.valueOf(Integer.parseInt(Port)+Noeud.get(Destination).getVoisin(i))+"/"+Nom+String.valueOf(Noeud.get(Destination).getVoisin(i)));
+						ref_obj_distant.envoyerNoeud(Noeud.get(Destination).getVoisin(i),Noeud.get(Destination).getId(),Source);
+					}
+				}
+			}
+			// si count(i,k) = vi et parent(i,k) != null
+			// (-1 au lieu de null ici pour éviter les problèmes de type)
+			if (Noeud.get(Destination).getCount(Source) == Noeud.get(Destination).getTailleVoisinage() && Noeud.get(Destination).getParent(Source) != -1) {
+			Interface ref_obj_distant=(Interface)Naming.lookup("//"+Machine+":"+String.valueOf(Integer.parseInt(Port)+Noeud.get(Destination).getParent(Source))+"/"+Nom+String.valueOf(Noeud.get(Destination).getParent(Source)));
+				ref_obj_distant.envoyerNoeud(Noeud.get(Destination).getParent(Source),Noeud.get(Destination).getId(),Source);
+			}
+			
+		} catch (RemoteException e) {
+			System.out.println("Le serveur est en panne : "+e.getMessage());
+		} catch (NotBoundException e) {
+			System.out.println("Le serveur est en panne à cause d'un dépassement de capacité : "+e.getMessage());
+		} catch (MalformedURLException e) {
+			System.out.println("L'adresse demandé n'existe pas : "+e.getMessage());
+		}
+	}
+	
+	public ArrayList<Boolean> genererInit (int nbNoeud) throws Exception {
+		ArrayList<Boolean> l = new ArrayList<Boolean>(nbNoeud);
+		for (int i=0;i<nbNoeud;i++) {
+			// permet d'activer et de désactiver
+			// le noeud lui-même'
+			l.add(false);
+		}
+		return l;
+	}
+	
+	public static ArrayList<ArrayList<Integer>> genererVoisin (int nbNoeud) throws Exception {
+		// on crée un ArrayList de taille nbNoeud
+		ArrayList<ArrayList<Integer>> l = new ArrayList<ArrayList<Integer>>(nbNoeud); 
+		// préparer le générateur de nombre aléatoire
+		Random  randomGenerator = new Random();
+		// pour chaque noeud
+		for (int i=0;i<nbNoeud;i++) {
+			// on tire aléatoirement le nombre de voisins
+			// auxquels sera relié le noeud i
+			int nbVoisin = randomGenerator.nextInt(nbNoeud-1)+1;
+			// on crée une nouvelle liste de taille nbVoisin
+			l.add(i, new ArrayList<Integer>(nbVoisin));
+			// à partir du deuxième tour, on recopie
+			// le voisins des tours précédents si nécessaire...
+			if (i>0) {
+				for(int j=0;j<i;j++) {
+					// vérifier la présence du noeud
+					if (l.get(j).contains(i)) {
+						l.get(i).add(j);
+					}
+				}
+			}
+			
+			// initialisation du compteur pour éviter les boucles
+			// infinis dans la génération des voisins 
+			int cpt = 0;
+			while (l.get(i).size() < nbVoisin) {
+				// on tire aléatoirement le numéro du voisin
+				int numVoisin = randomGenerator.nextInt(nbNoeud);
+				// on s'assure que le voisin est supérieure au noeud
+				// lui-même et qu'il n'est pas déjà présent 
+				if (numVoisin > i && !l.get(i).contains(numVoisin)) {
+					l.get(i).add(numVoisin);
+				}
+				// pour éviter les boucles infinis quand plus aucun
+				// voisin n'est disponible, on décrémente le nombre
+				// de voisins auxquels est connecté le noeud.
+				cpt++;
+				if (cpt > (nbNoeud*nbNoeud)-1) nbVoisin--;
+			}
+		}
+		// afficher la liste des connexions créées pour debug
+		/*for(int i=0;i<l.size();i++) {
+			System.out.println("le noeud "+String.valueOf(i)+" a pour voisin le(s) noeud(s) :");
+			for(int j=0;j<l.get(i).size();j++) {
+				System.out.println(String.valueOf(l.get(i).get(j)));
+			}
+		}*/
+		return l;
+	}
+	
+	public static void main(String[] args)  throws IOException { 
+		try {
+			// créer un terminal d'écriture
+			Console c = System.console();
+			if (c == null) {
+				System.err.println("Pas de terminal.");
+				System.exit(1);
+			}
+			// nom de la machine
+			// ne fonctionne qu'avec 127.0.0.1 ou localhost.localdomain sur ma machine'
+			Machine = "localhost.localdomain";
+			
+			// choix du port
+			// par défaut le 1099
+			Port = c.readLine("\nPort de la machine (par défaut 1099): ");
+			// vérifier si le port est vide 
+			// ou si il ne s'agit pas d'une valeur numérique entière
+			// ou si le port est plus petit que 1099
+			if (Port.isEmpty() || 
+				!Port.matches("[0-9]+") || 
+				Integer.parseInt(Port) < 1099) {
+				Port = "1099";
+			}
+			
+			// nom du service
+			Nom = c.readLine("Nom de l'objet distant' (par défaut Noeud): ");
+			// vérifier si le nom est vide
+			if (Nom.isEmpty()) {
+				Nom = "Noeud";
+			}
+			
+			// nombre de noeud du graphe
+			//String nbNoeud = c.readLine("Combien de noeuds possède le graphe (par défaut minimum 2): ");
+			// vérifier si le nombre de noeud est vide
+			// ou si il ne s'agit pas d'une valeur numérique entière
+			// ou si le nombre de noeud est inférieur à 2
+			//if (nbNoeud.isEmpty() || 
+				//!nbNoeud.matches("[0-9]+") || 
+				//Integer.parseInt(nbNoeud) < 2) {
+				String nbNoeud = "5";
+			//}
+			
+			// génération de la liste des voisins de base
+			//Voisins = genererVoisin(Integer.parseInt(nbNoeud));
+			Voisins = new ArrayList<ArrayList<Integer>>(Integer.parseInt(nbNoeud)); 
+			Voisins.add(0, new ArrayList<Integer>(1));
+			Voisins.get(0).add(2);
+			Voisins.add(1, new ArrayList<Integer>(1));
+			Voisins.get(1).add(2);
+			Voisins.add(2, new ArrayList<Integer>(3));
+			Voisins.get(2).add(0);
+			Voisins.get(2).add(1);
+			Voisins.get(2).add(4);
+			Voisins.add(3, new ArrayList<Integer>(1));
+			Voisins.get(3).add(4);
+			Voisins.add(4, new ArrayList<Integer>(2));
+			Voisins.get(4).add(2);
+			Voisins.get(4).add(3);
+			// génération des états des noeuds
+			//initI = genererInit(Integer.parseInt(nbNoeud));
+			
+			// instancier les registre et les noeuds
+			Noeud = new ArrayList<Noeud>(Integer.parseInt(nbNoeud));
+			Registre = new ArrayList<Registry>(Integer.parseInt(nbNoeud));
+			for (int i=0; i<Integer.parseInt(nbNoeud);i++) {
+				// commande rmiregistry <Port> &
+				Registre.add(LocateRegistry.createRegistry(Integer.parseInt(Port)+i));
+				// instanciation du noeud rmi
+				Naming.bind("//"+Machine+":"+String.valueOf(Integer.parseInt(Port)+i)+"/"+Nom+String.valueOf(i), new TC_Algorithme (i,Integer.parseInt(nbNoeud), Voisins.get(i) ) );
+			}
+			
+			// chaque noeud devra tour à tour construir son propre arbre de recouvrement
+			for (int i = 0; i<Integer.parseInt(nbNoeud);i++) {
+				Interface ref_obj_distant=(Interface)Naming.lookup("//"+Machine+":"+String.valueOf(Integer.parseInt(Port)+i)+"/"+Nom+String.valueOf(i));
+				ref_obj_distant.envoyerNoeud(i,-1,i);
+			}
+			
+			for (int i = 0; i<Integer.parseInt(nbNoeud);i++) {
+				Noeud.get(i).afficherInit();
+				Noeud.get(i).afficherAtteint();
+				Noeud.get(i).afficherCount();
+				Noeud.get(i).afficherParent();
+				
+			}
+			for(int i=0;i<Voisins.size();i++) {
+			System.out.println("le noeud "+String.valueOf(i)+" a pour voisin le(s) noeud(s) :");
+			for(int j=0;j<Voisins.get(i).size();j++) {
+				System.out.println(String.valueOf(Voisins.get(i).get(j)));
+			}
+			}
+			// problème de connexion
+		} catch (Exception e) {
+			System.out.println("Le serveur est en panne : "+e.getMessage());
+		}
+	}
+}
+
